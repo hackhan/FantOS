@@ -129,11 +129,11 @@ label_no_loaderbin:
 	mov ax, 4c00h
 	int 21h
 %else
-	halt
+	hlt
 %endif
 
 label_filename_found:
-	halt
+	hlt
 
 ;======================= <变量定义> ==========================
 wroot_dir_size_for_loop	dw	ROOT_DIR_SECTORS	;根目录占用扇区数
