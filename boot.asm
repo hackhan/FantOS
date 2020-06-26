@@ -57,6 +57,17 @@ label_start:
 	mov ss, ax
 	mov sp, BASE_OF_STACK
 	
+	;清屏
+	mov ax, 0600h	;AH = 6, AL = 0h
+	mov bx, 0002h	;黑底绿字
+	mov cx, 0		;左上角(0, 0)
+	mov dx, 0184fh	;右下角(80, 50)
+	int 10h
+	
+	;打印 "Booting  "
+	mov dh, 0
+	call disp_str
+	
 	;复位软驱
 	xor ah, ah
 	xor dl, dl

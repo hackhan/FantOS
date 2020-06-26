@@ -7,7 +7,7 @@ romimage: file="F:\Bochs-2.6.11/BIOS-bochs-latest", address=0x00000000, options=
 vgaromimage: file="F:\Bochs-2.6.11/VGABIOS-lgpl-latest"
 boot: floppy
 floppy_bootsig_check: disabled=0
-floppya: type=1_44, 1_44="C:\Users\lenovo\Desktop\FantOS\a.img", status=inserted, write_protected=0
+floppya: type=1_44, 1_44="C:\Users\lenovo\Desktop\FantOS\bin\a.img", status=inserted, write_protected=0
 # no floppyb
 ata0: enabled=true, ioaddr1=0x1f0, ioaddr2=0x3f0, irq=14
 ata0-master: type=none
