@@ -12,15 +12,15 @@
 
 ;====================== <宏定义> ==========================
 %ifdef _BOOT_DEBUG_
-BASE_OF_STACK	equ	0100h	;dos下栈基地址
+	BASE_OF_STACK	equ	0100h	;dos下栈基地址
 %else
-BASE_OF_STACK	equ	07c00h	;栈基地址
+	BASE_OF_STACK	equ	07c00h	;栈基地址
 %endif
 
-BASE_OF_LOADER	equ 0900h	;loader.bin被加载到的段地址
-OFFSET_OF_LOADER	equ 0100h	;loader.bin被加载到的偏移地址
-ROOT_DIR_SECTORS	equ 14	;根目录占用扇区数
-SECTOR_NO_OF_ROOT_DIRECTORY	equ 19	;根目录第一个扇区号
+	BASE_OF_LOADER	equ 0900h	;loader.bin被加载到的段地址
+	OFFSET_OF_LOADER	equ 0100h	;loader.bin被加载到的偏移地址
+	ROOT_DIR_SECTORS	equ 14	;根目录占用扇区数
+	SECTOR_NO_OF_ROOT_DIRECTORY	equ 19	;根目录第一个扇区号
 ;====================== </宏定义> ==========================
 
 	jmp short label_start
@@ -133,7 +133,52 @@ label_no_loaderbin:
 %endif
 
 label_filename_found:
-	hlt
+	and di, 0FFE0h	;将di置到当前条目开始
+	add di, 01Ah
+	mov cx, word [es:di] ;从偏移量1A处取得该文件首簇号
+	
+	;求loader.bin数据区起始扇区号
+	push cx
+	add cx, (1+2*9+ROOT_DIR_SECTORS-2)
+	
+	mov ax, BASE_OF_LOADER
+	mov es, ax
+	mov bx, OFFSET_OF_LOADER
+	mov ax, cx
+
+label_goon_loading_file:
+	;每读一个扇区就在"Booting  "后追加一个 .
+	push ax
+	push bx
+	mov ah, 0Eh
+	mov al, '.'
+	mov bl, 02h
+	int 10h
+	pop bx
+	pop ax
+	
+	;读取一扇区
+	mov cl, 1
+	call read_sector
+	
+	pop ax	;ax <- loader.bin簇号
+	call get_fat_entry
+	cmp ax, 0FFFh	;判断该簇是否是文件最后一个簇
+	jz label_file_loaded
+	
+	;求下一个簇号所对应的扇区
+	push ax
+	add ax, (1+2*9+ROOT_DIR_SECTORS-2)
+	
+	add bx, [BPB_BytsPerSec]	;bx+=512，用于读下一个扇区到此处
+	jmp label_goon_loading_file
+
+label_file_loaded:
+	mov dh, 1	;"Ready.   "
+	call disp_str
+	
+	;loader加载完毕，跳转到loader内开始执行
+	jmp BASE_OF_LOADER:OFFSET_OF_LOADER
 
 ;======================= <变量定义> ==========================
 wroot_dir_size_for_loop	dw	ROOT_DIR_SECTORS	;根目录占用扇区数
@@ -149,17 +194,17 @@ message2	db	"No LOADER"	;9字节
 
 
 
-;描述：显示字符串
-;入参：dh, 表示要显示哪个字符串
-;返回：
-;
-;备注：int10号中断
-;		AH	功能		调用参数
-;		13	显示字符串	ES:BP = 串地址 
-;						CX = 串长度 
-;						DH， DL = 起始行列 
-;						BH = 页号
-;						AL = 1，BL = 属性	光标跟随移动
+	;描述：显示字符串
+	;入参：dh, 表示要显示哪个字符串
+	;返回：
+	;
+	;备注：int10号中断
+	;		AH	功能		调用参数
+	;		13	显示字符串	ES:BP = 串地址 
+	;						CX = 串长度 
+	;						DH， DL = 起始行列 
+	;						BH = 页号
+	;						AL = 1，BL = 属性	光标跟随移动
 disp_str:
 	;计算要显示的字符串的地址
 	mov al, MESSAGE_LENGTH
@@ -178,17 +223,17 @@ disp_str:
 	int 10h
 	ret
 
-;描述：读取扇区
-;入参：
-;	AX, 起始扇区号
-;	CL, 读取扇区个数
-;返回：ES:BX
-;
-;备注：int 13h号中断
-;		寄存器						作用
-;		ah=02h al=要读取的扇区数	从磁盘将数据读入es:bx指向的缓冲区
-;		ch=柱面号 cl=起始扇区号
-;		dh=磁头号 dl=驱动器号
+	;描述：读取扇区
+	;入参：
+	;	AX, 起始扇区号
+	;	CL, 读取扇区个数
+	;返回：ES:BX
+	;
+	;备注：int 13h号中断
+	;		寄存器						作用
+	;		ah=02h al=要读取的扇区数	从磁盘将数据读入es:bx指向的缓冲区
+	;		ch=柱面号 cl=起始扇区号
+	;		dh=磁头号 dl=驱动器号
 read_sector:
 	push bp
 	mov bp, sp
@@ -216,6 +261,60 @@ read_sector:
 	pop bp
 	ret
 	
+	;描述：根据簇号取FatEntry中的值
+	;入参：ax, 扇区所代表的簇号
+	;返回：ax, 簇号对应FatEntry所包含的值
+get_fat_entry:
+	push es
+	push bx
+	push ax
+	
+	;在BASE_OF_LOADER前开辟4k空间用于存放FAT表
+	mov ax, BASE_OF_LOADER
+	sub ax, 0100h	;4096=0x1000 0x1000>>4=0x100
+	mov es, ax
+	pop ax
+	
+	mov byte [bodd], 0
+	
+	;计算FatEntry在FAT表中字节偏移量，1 FatEntry = 1.5 Byte
+	mov bx, 3
+	mul bx
+	mov bx, 2
+	div bx	;该除法完成后，ax = FatEntry字节偏移量
+	
+	cmp dx, 0
+	jz label_even
+	mov byte [bodd], 1	;如果有余数，说明簇号是奇数
+
+label_even:
+	;根据FatEntry字节偏移量求扇区，ax / 512
+	xor dx, dx
+	mov bx, [BPB_BytsPerSec]
+	div bx	;ax = FatEntry所在扇区相对于FAT表的扇区号
+			;dx = FatEntry在扇区内偏移量
+	
+	push dx
+	mov bx, 0
+	add ax, [BPB_RsvdSecCnt]	;ax + 首个FAT表所在扇区号
+	mov cl, 2	;因为FatEntry可能跨越两个扇区，所以此处读取两个扇区
+	call read_sector
+	
+	pop dx
+	add bx, dx
+	mov ax, [es:bx]	;ax <- FatEntry
+	
+	cmp byte [bodd], 1
+	jnz label_even_2
+	shr ax, 4	;如果簇号是奇数，只需要取高12位，故右移4位
+	
+label_even_2:
+	and ax, 0FFFh	;高4位清零
+	
+label_get_fat_enry_ok:
+	pop	bx
+	pop	es
+	ret
 	
 	times 510-($-$$) db	0	;填充剩余空间
-	dw 0xAA55	; 结束标志
+	db 0x55, 0xAA	;结束标志
